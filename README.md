@@ -173,7 +173,7 @@ if th.ShouldCall(buyerID) {
 
 ```sh
 make test               # everything below, with -race (-short skips the real-time e2e tests)
-make test-integration   # conformance suite against a real Redis at REDIS_ADDR
+make test-integration   # conformance suite and live e2e against a real Redis at REDIS_ADDR (flushes it)
 make demo-verify        # the docker-compose demo as an acceptance test
 make fuzz               # fuzz the policy for 30s
 make bench              # hot path benchmarks

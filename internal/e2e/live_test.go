@@ -3,7 +3,8 @@ package e2e
 // Tests in this file run the real background loops (pod syncers and
 // flushers, evaluator ticks and leases) in real time against Redis: a real
 // server when REDIS_ADDR is set (CI does this), miniredis otherwise. They take
-// a few seconds each and are skipped with -short.
+// a few seconds each and are skipped with -short. With REDIS_ADDR they flush
+// that Redis, so run them with -p 1 next to the redisstore package.
 
 import (
 	"context"

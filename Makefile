@@ -14,8 +14,8 @@ test: ## Run unit, conformance and end-to-end tests with the race detector
 	go test -race ./...
 
 .PHONY: test-integration
-test-integration: ## Also run the store conformance suite against a real Redis (REDIS_ADDR)
-	REDIS_ADDR=$(REDIS_ADDR) go test -race -count=1 ./internal/store/redisstore/
+test-integration: ## Run the store conformance suite and live e2e tests against a real Redis (REDIS_ADDR)
+	REDIS_ADDR=$(REDIS_ADDR) go test -race -count=1 -p 1 ./internal/store/redisstore/ ./internal/e2e/
 
 .PHONY: cover
 cover: ## Test coverage report

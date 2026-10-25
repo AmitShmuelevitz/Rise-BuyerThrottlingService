@@ -24,10 +24,14 @@ jobs:
           go-version-file: go.mod
       - name: Vet
         run: go vet ./...
-      - name: Test (unit, conformance on miniredis and real Redis, e2e)
+      - name: Test (unit, conformance on miniredis, e2e)
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Integration (conformance and live e2e on real Redis)
+        # Both packages flush the same Redis and share its pub/sub channel,
+        # so they run one at a time (-p 1).
         env:
           REDIS_ADDR: localhost:6379
-        run: go test -race -count=1 -coverprofile=coverage.out ./...
+        run: go test -race -count=1 -p 1 ./internal/store/redisstore/ ./internal/e2e/
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1
       - name: Benchmarks (smoke)

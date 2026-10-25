@@ -27,7 +27,9 @@ func TestConformance(t *testing.T) {
 }
 
 // TestConformanceRealRedis runs the suite against a real Redis when
-// REDIS_ADDR is set (make test-integration and CI do this).
+// REDIS_ADDR is set (make test-integration and CI do this). It flushes that
+// Redis, so it must not run alongside the e2e package against the same server
+// (both targets use -p 1).
 func TestConformanceRealRedis(t *testing.T) {
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
