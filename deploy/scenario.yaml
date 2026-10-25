@@ -1,0 +1,58 @@
+# Demo scenario for the traffic simulator.
+#
+# Times are measured from simulator start. With the demo's 10s window and 5s
+# grace, a block shows up in the evaluator logs within ~15-25s of a buyer
+# going bad, and a full recovery (0.95 -> 0 in 0.1 steps) takes 10 windows.
+
+rps: 800                # ad requests per second, spread across the auction pods
+latency: 15ms           # healthy buyer latency (jittered 0.5x-1.5x)
+timeout_latency: 300ms  # a "timeout" response takes this long (> 150ms auction deadline)
+
+buyers:
+  # Always healthy: never throttled.
+  - id: buyer_healthy_1
+    phases:
+      - failure_rate: 0.01
+  - id: buyer_healthy_2
+    phases:
+      - failure_rate: 0.02
+        timeout_rate: 0.02
+
+  # Outage for 45s, then healthy: blocked on failure_rate, then recovers step by step.
+  - id: buyer_bad
+    phases:
+      - duration: 45s
+        failure_rate: 0.9
+      - failure_rate: 0.01
+
+  # Slow for 60s: half of its responses miss the auction deadline.
+  # Blocked on timeout_rate, then recovers.
+  - id: buyer_slow
+    phases:
+      - duration: 60s
+        timeout_rate: 0.5
+      - timeout_rate: 0.01
+
+  # Fails, starts recovering, fails again mid recovery (snap back to the
+  # block level), then recovers for good.
+  - id: buyer_relapse
+    phases:
+      - duration: 30s
+        failure_rate: 0.9
+      - duration: 50s
+        failure_rate: 0.01
+      - duration: 20s
+        failure_rate: 0.9
+      - failure_rate: 0.01
+
+  # 50% failures: below the 0.7 threshold, so it is never blocked.
+  - id: buyer_flaky
+    phases:
+      - failure_rate: 0.5
+
+  # Always failing but tiny: ~8 requests/s, ~80 per 10s window, below the
+  # 100-request minimum sample, so it is never blocked.
+  - id: buyer_tiny
+    share: 0.01
+    phases:
+      - failure_rate: 1.0

@@ -1,0 +1,130 @@
+# Full demo: Redis, two evaluator replicas (one active, one standby), three
+# auction pods and the traffic simulator with fake buyers.
+#
+#   docker compose up --build
+#   docker compose --profile observability up --build   # + Prometheus and Grafana
+#
+# The demo uses a 10s evaluation window so a full block -> recovery cycle
+# takes about 2-3 minutes. Set THROTTLE_WINDOW=1m for the production default.
+
+x-throttle-env: &throttle-env
+  REDIS_ADDR: redis:6379
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Policy: must be identical for the evaluator and the pods.
+  THROTTLE_WINDOW: ${THROTTLE_WINDOW:-10s}
+  THROTTLE_FAILURE_THRESHOLD: ${THROTTLE_FAILURE_THRESHOLD:-0.7}
+  THROTTLE_TIMEOUT_THRESHOLD: ${THROTTLE_TIMEOUT_THRESHOLD:-0.3}
+  THROTTLE_MIN_SAMPLE_SIZE: ${THROTTLE_MIN_SAMPLE_SIZE:-100}
+  THROTTLE_BLOCK_LEVEL: ${THROTTLE_BLOCK_LEVEL:-0.95}
+  THROTTLE_RECOVERY_STEP: ${THROTTLE_RECOVERY_STEP:-0.1}
+  THROTTLE_STALE_RECOVERY_WINDOWS: ${THROTTLE_STALE_RECOVERY_WINDOWS:-0}
+
+x-evaluator: &evaluator
+  build: .
+  image: buyer-throttling:local
+  entrypoint: ["/usr/local/bin/evaluator"]
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+x-auction: &auction
+  build: .
+  image: buyer-throttling:local
+  entrypoint: ["/usr/local/bin/auction"]
+  depends_on:
+    redis:
+      condition: service_healthy
+    evaluator-1:
+      condition: service_started
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  evaluator-1:
+    <<: *evaluator
+    environment:
+      <<: *throttle-env
+      EVALUATOR_ID: evaluator-1
+      EVALUATOR_GRACE: ${EVALUATOR_GRACE:-5s}
+    ports: ["8080:8080"]
+
+  evaluator-2:
+    <<: *evaluator
+    environment:
+      <<: *throttle-env
+      EVALUATOR_ID: evaluator-2
+      EVALUATOR_GRACE: ${EVALUATOR_GRACE:-5s}
+    ports: ["8081:8080"]
+
+  auction-1:
+    <<: *auction
+    environment: &auction-env
+      <<: *throttle-env
+      POD_ID: auction-1
+      BUYER_BASE_URL: http://simulator:9000
+      AUCTION_TIMEOUT: 150ms
+      THROTTLE_FLUSH_INTERVAL: 1s
+      THROTTLE_SYNC_INTERVAL: 1s
+    ports: ["8091:8080"]
+
+  auction-2:
+    <<: *auction
+    environment:
+      <<: *auction-env
+      POD_ID: auction-2
+    ports: ["8092:8080"]
+
+  auction-3:
+    <<: *auction
+    environment:
+      <<: *auction-env
+      POD_ID: auction-3
+    ports: ["8093:8080"]
+
+  simulator:
+    build: .
+    image: buyer-throttling:local
+    entrypoint: ["/usr/local/bin/simulator"]
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SCENARIO: /etc/throttling/scenario.yaml
+      AUCTION_TARGETS: http://auction-1:8080,http://auction-2:8080,http://auction-3:8080
+      RPS: ${RPS:-0} # 0 = use the scenario's rps
+      REPORT_EVERY: 10s
+    volumes:
+      - ./deploy/scenario.yaml:/etc/throttling/scenario.yaml:ro
+    ports: ["9000:9000"]
+    depends_on:
+      - auction-1
+      - auction-2
+      - auction-3
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: ["observability"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./deploy/grafana:/etc/grafana/provisioning:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
