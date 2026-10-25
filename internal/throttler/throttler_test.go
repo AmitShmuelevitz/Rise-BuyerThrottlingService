@@ -3,8 +3,10 @@ package throttler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -385,5 +387,84 @@ func TestResultString(t *testing.T) {
 		if r.String() != want {
 			t.Errorf("%d.String() = %q, want %q", r, r.String(), want)
 		}
+	}
+}
+
+type mismatchMetrics struct {
+	nopMetrics
+	mismatch     bool
+	evaluatedEnd time.Time
+}
+
+func (m *mismatchMetrics) SetConfigMismatch(b bool)               { m.mismatch = b }
+func (m *mismatchMetrics) SetState(_ uint64, evaluated time.Time) { m.evaluatedEnd = evaluated }
+
+func TestSync_DetectsWindowSizeMismatch(t *testing.T) {
+	var logs strings.Builder
+	m := &mismatchMetrics{}
+	th, s, _ := newTestThrottler(t, Options{Window: time.Minute, Metrics: m, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	ctx := context.Background()
+
+	commitSized := func(w window.ID, seconds int64) {
+		t.Helper()
+		if _, _, err := s.CommitState(ctx, w, []store.Record{{State: policy.State{BuyerID: "b"}, Window: w, WindowSeconds: seconds}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := th.Sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	commitSized(60, 60)
+	if m.mismatch || strings.Contains(logs.String(), "mismatch") {
+		t.Fatal("matching window size reported as a mismatch")
+	}
+	commitSized(120, 10)
+	commitSized(180, 10)
+	if !m.mismatch {
+		t.Fatal("mismatch not reported in metrics")
+	}
+	if n := strings.Count(logs.String(), "window size mismatch"); n != 1 {
+		t.Fatalf("mismatch logged %d times, want once:\n%s", n, logs.String())
+	}
+	commitSized(240, 60)
+	if m.mismatch {
+		t.Fatal("mismatch metric not cleared after the configuration was fixed")
+	}
+}
+
+func TestSync_ReportsStaleState(t *testing.T) {
+	var logs strings.Builder
+	m := &mismatchMetrics{}
+	th, s, c := newTestThrottler(t, Options{Window: time.Minute, Metrics: m, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	ctx := context.Background()
+
+	w := window.Of(t0, time.Minute)
+	commit(t, s, w, policy.State{BuyerID: "b", ThrottleRate: 0.95})
+	c.Set(w.End(time.Minute).Add(5 * time.Second))
+	_ = th.Sync(ctx)
+	if !m.evaluatedEnd.Equal(w.End(time.Minute)) {
+		t.Fatalf("evaluated window end = %v, want %v", m.evaluatedEnd, w.End(time.Minute))
+	}
+	if strings.Contains(logs.String(), "stale") {
+		t.Fatal("fresh state reported as stale")
+	}
+
+	// The evaluator stops committing: after 3 windows the pod warns, once,
+	// and keeps serving the last known state.
+	c.Advance(3*time.Minute + time.Second)
+	_ = th.Sync(ctx)
+	_ = th.Sync(ctx)
+	if n := strings.Count(logs.String(), "throttle state is stale"); n != 1 {
+		t.Fatalf("stale warning logged %d times, want once:\n%s", n, logs.String())
+	}
+	if th.Rate("b") != 0.95 {
+		t.Fatal("stale state must still be served")
+	}
+
+	commit(t, s, window.Of(c.Now(), time.Minute).Prev(time.Minute), policy.State{BuyerID: "b", ThrottleRate: 0.85})
+	_ = th.Sync(ctx)
+	if !strings.Contains(logs.String(), "fresh again") {
+		t.Fatalf("recovery from stale state not logged:\n%s", logs.String())
 	}
 }

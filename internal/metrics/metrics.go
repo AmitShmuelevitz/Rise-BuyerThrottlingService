@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,6 +25,8 @@ type Throttler struct {
 	skipped      *prometheus.CounterVec
 	rate         *prometheus.GaugeVec
 	version      prometheus.Gauge
+	mismatch     prometheus.Gauge
+	evaluatedEnd atomic.Int64 // unix nanos of the end of the last evaluated window
 	flushErrors  prometheus.Counter
 	droppedStats prometheus.Counter
 	syncErrors   prometheus.Counter
@@ -56,9 +59,22 @@ func NewThrottler(reg prometheus.Registerer) *Throttler {
 		syncErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "throttle_state_sync_errors_total", Help: "Failed attempts to load throttle state.",
 		}),
+		mismatch: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "throttle_config_mismatch", Help: "1 if this pod's window size differs from the evaluator's.",
+		}),
 		known: make(map[string]struct{}),
 	}
-	reg.MustRegister(m.calls, m.skipped, m.rate, m.version, m.flushErrors, m.droppedStats, m.syncErrors)
+	age := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "throttle_state_age_seconds",
+		Help: "Seconds since the end of the window the loaded state was evaluated from. Healthy: about one window plus the grace period. Alert when it exceeds a few windows.",
+	}, func() float64 {
+		end := m.evaluatedEnd.Load()
+		if end == 0 {
+			return 0
+		}
+		return time.Since(time.Unix(0, end)).Seconds()
+	})
+	reg.MustRegister(m.calls, m.skipped, m.rate, m.version, m.flushErrors, m.droppedStats, m.syncErrors, m.mismatch, age)
 	return m
 }
 
@@ -86,10 +102,23 @@ func (m *Throttler) SetRates(rates map[string]float64) {
 	}
 }
 
-func (m *Throttler) SetStateVersion(v uint64) { m.version.Set(float64(v)) }
-func (m *Throttler) IncFlushErrors()          { m.flushErrors.Inc() }
-func (m *Throttler) AddDroppedStats(n int64)  { m.droppedStats.Add(float64(n)) }
-func (m *Throttler) IncSyncErrors()           { m.syncErrors.Inc() }
+func (m *Throttler) SetState(v uint64, evaluatedEnd time.Time) {
+	m.version.Set(float64(v))
+	if !evaluatedEnd.IsZero() {
+		m.evaluatedEnd.Store(evaluatedEnd.UnixNano())
+	}
+}
+
+func (m *Throttler) SetConfigMismatch(mismatch bool) {
+	if mismatch {
+		m.mismatch.Set(1)
+	} else {
+		m.mismatch.Set(0)
+	}
+}
+func (m *Throttler) IncFlushErrors()         { m.flushErrors.Inc() }
+func (m *Throttler) AddDroppedStats(n int64) { m.droppedStats.Add(float64(n)) }
+func (m *Throttler) IncSyncErrors()          { m.syncErrors.Inc() }
 
 // Evaluator holds the evaluator's metrics.
 type Evaluator struct {

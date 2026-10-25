@@ -28,6 +28,9 @@ type Record struct {
 	Window window.ID `json:"window"`
 	// UpdatedAt is when the throttle rate or reason last changed.
 	UpdatedAt time.Time `json:"updated_at"`
+	// WindowSeconds is the evaluator's window size. Pods compare it with
+	// their own: a mismatch means their stats land in the wrong windows.
+	WindowSeconds int64 `json:"window_seconds,omitempty"`
 }
 
 // StatsSink receives per-buyer stat deltas from auction pods. Deltas from

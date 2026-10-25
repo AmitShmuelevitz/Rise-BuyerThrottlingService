@@ -55,7 +55,10 @@ type Metrics interface {
 	AddCalls(buyerID string, ok, failed, timeouts int64)
 	AddSkipped(buyerID string, n int64)
 	SetRates(rates map[string]float64)
-	SetStateVersion(v uint64)
+	// SetState reports the loaded state's version and when the window it
+	// was evaluated from ended (zero if unknown), for a state age gauge.
+	SetState(version uint64, evaluatedWindowEnd time.Time)
+	SetConfigMismatch(bool)
 	IncFlushErrors()
 	AddDroppedStats(n int64)
 	IncSyncErrors()
@@ -66,7 +69,8 @@ type nopMetrics struct{}
 func (nopMetrics) AddCalls(string, int64, int64, int64) {}
 func (nopMetrics) AddSkipped(string, int64)             {}
 func (nopMetrics) SetRates(map[string]float64)          {}
-func (nopMetrics) SetStateVersion(uint64)               {}
+func (nopMetrics) SetState(uint64, time.Time)           {}
+func (nopMetrics) SetConfigMismatch(bool)               {}
 func (nopMetrics) IncFlushErrors()                      {}
 func (nopMetrics) AddDroppedStats(int64)                {}
 func (nopMetrics) IncSyncErrors()                       {}
@@ -134,10 +138,11 @@ func (o *Options) setDefaults() {
 // snapshot is an immutable view of throttle state. It is replaced, never
 // mutated, so readers need no locks.
 type snapshot struct {
-	rates    map[string]float64
-	records  map[string]store.Record
-	version  uint64
-	loadedAt time.Time
+	rates      map[string]float64
+	records    map[string]store.Record
+	version    uint64
+	lastWindow window.ID
+	loadedAt   time.Time
 }
 
 // counters are one buyer's results since the last flush.
@@ -153,6 +158,9 @@ type Throttler struct {
 
 	snap     atomic.Pointer[snapshot]
 	counters sync.Map // buyerID -> *counters
+
+	mismatchLogged atomic.Bool
+	staleLogged    atomic.Bool
 
 	flushMu   sync.Mutex // serializes Flush; guards fields below
 	lastFlush time.Time
@@ -256,8 +264,12 @@ func (t *Throttler) Sync(ctx context.Context) error {
 		return err
 	}
 	cur := t.snap.Load()
+	now := t.opts.Clock.Now()
 	if snap.Version == cur.version && !cur.loadedAt.IsZero() {
-		t.snap.Store(&snapshot{rates: cur.rates, records: cur.records, version: cur.version, loadedAt: t.opts.Clock.Now()})
+		next := *cur
+		next.loadedAt = now
+		t.snap.Store(&next)
+		t.checkStale(snap, now)
 		return nil
 	}
 
@@ -267,13 +279,62 @@ func (t *Throttler) Sync(ctx context.Context) error {
 			rates[id] = r.ThrottleRate
 		}
 	}
-	t.snap.Store(&snapshot{rates: rates, records: snap.States, version: snap.Version, loadedAt: t.opts.Clock.Now()})
+	t.snap.Store(&snapshot{rates: rates, records: snap.States, version: snap.Version, lastWindow: snap.LastWindow, loadedAt: now})
 	t.opts.Metrics.SetRates(rates)
-	t.opts.Metrics.SetStateVersion(snap.Version)
+	var evaluatedEnd time.Time
+	if snap.Version > 0 {
+		evaluatedEnd = snap.LastWindow.End(t.opts.Window)
+	}
+	t.opts.Metrics.SetState(snap.Version, evaluatedEnd)
 	if snap.Version != cur.version {
 		t.opts.Logger.Info("throttle state updated", "version", snap.Version, "previous_version", cur.version, "throttled", rates)
 	}
+	t.checkWindowSize(snap)
+	t.checkStale(snap, now)
 	return nil
+}
+
+// checkWindowSize reports when the evaluator uses a different window size
+// than this pod. Stats would then be bucketed into windows the evaluator
+// never reads (or reads only partly), so this is logged as an error.
+func (t *Throttler) checkWindowSize(snap store.Snapshot) {
+	own := int64(t.opts.Window / time.Second)
+	for _, r := range snap.States {
+		if r.WindowSeconds == 0 {
+			continue // written by an older evaluator: unknown
+		}
+		mismatch := r.WindowSeconds != own
+		t.opts.Metrics.SetConfigMismatch(mismatch)
+		if mismatch && !t.mismatchLogged.Swap(true) {
+			t.opts.Logger.Error("window size mismatch: this pod's stats will be misattributed; set THROTTLE_WINDOW to the same value on the evaluator and every pod",
+				"pod_window_seconds", own, "evaluator_window_seconds", r.WindowSeconds)
+		}
+		if !mismatch {
+			t.mismatchLogged.Store(false)
+		}
+		return
+	}
+}
+
+// staleAfter is how many windows may pass without a new evaluation before
+// the state is reported as stale.
+const staleAfter = 3
+
+// checkStale warns once when the evaluator has stopped committing, for
+// example because every replica is down. Pods keep serving the last state.
+func (t *Throttler) checkStale(snap store.Snapshot, now time.Time) {
+	if snap.Version == 0 {
+		return
+	}
+	age := now.Sub(snap.LastWindow.End(t.opts.Window))
+	stale := age > staleAfter*t.opts.Window
+	if stale && !t.staleLogged.Swap(true) {
+		t.opts.Logger.Warn("throttle state is stale: no evaluation committed recently, serving last known state",
+			"age", age.Round(time.Second), "last_window", snap.LastWindow, "version", snap.Version)
+	}
+	if !stale && t.staleLogged.Swap(false) {
+		t.opts.Logger.Info("throttle state is fresh again", "version", snap.Version)
+	}
 }
 
 func (t *Throttler) syncLoop(ctx context.Context) {

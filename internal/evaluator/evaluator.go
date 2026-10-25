@@ -236,7 +236,7 @@ func (s *Service) evaluate(ctx context.Context, w window.ID) (Report, error) {
 		d := policy.Evaluate(prev.State, stats[b], s.opts.Policy)
 		rep.Decisions = append(rep.Decisions, d)
 
-		rec := store.Record{State: d.Next, Window: w, UpdatedAt: prev.UpdatedAt}
+		rec := store.Record{State: d.Next, Window: w, UpdatedAt: prev.UpdatedAt, WindowSeconds: int64(s.opts.Policy.Window / time.Second)}
 		if d.Changed() {
 			rec.UpdatedAt = now
 		}

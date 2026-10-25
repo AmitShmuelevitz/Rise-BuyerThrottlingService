@@ -281,3 +281,17 @@ func TestRun_ReleasesLeaseOnShutdown(t *testing.T) {
 		t.Fatal("lease still held after shutdown")
 	}
 }
+
+func TestEvaluateWindow_RecordsCarryWindowSize(t *testing.T) {
+	c := clock.NewFake(t0)
+	s := memstore.New(c)
+	svc := newService(t, s, c, "e1")
+	w := window.Of(t0, size)
+	addStats(t, s, w, "b", policy.WindowStats{Total: 1})
+	if _, err := svc.EvaluateWindow(context.Background(), w); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, s, "b").WindowSeconds; got != 60 {
+		t.Fatalf("window_seconds = %d, want 60 so pods can detect a mismatch", got)
+	}
+}

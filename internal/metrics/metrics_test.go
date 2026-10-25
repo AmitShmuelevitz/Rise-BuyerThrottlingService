@@ -73,3 +73,35 @@ func TestEvaluator(t *testing.T) {
 		t.Errorf("metrics not found: %v", checks)
 	}
 }
+
+func TestThrottler_StateAgeAndMismatch(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewThrottler(reg)
+
+	get := func(name string) float64 {
+		t.Helper()
+		mfs, err := reg.Gather()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				return mf.GetMetric()[0].GetGauge().GetValue()
+			}
+		}
+		t.Fatalf("metric %s not found", name)
+		return 0
+	}
+
+	if age := get("throttle_state_age_seconds"); age != 0 {
+		t.Fatalf("age before any state = %v, want 0", age)
+	}
+	m.SetState(3, time.Now().Add(-90*time.Second))
+	if age := get("throttle_state_age_seconds"); age < 89 || age > 95 {
+		t.Fatalf("age = %v, want about 90", age)
+	}
+	m.SetConfigMismatch(true)
+	if get("throttle_config_mismatch") != 1 {
+		t.Fatal("mismatch gauge not set")
+	}
+}

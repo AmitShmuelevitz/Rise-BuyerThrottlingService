@@ -211,6 +211,39 @@
           "legendFormat": "{{instance}}"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Throttle state age per pod (alert above a few windows)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "throttle_state_age_seconds",
+          "legendFormat": "{{instance}}"
+        },
+        {
+          "refId": "B",
+          "expr": "throttle_config_mismatch",
+          "legendFormat": "config mismatch {{instance}}"
+        }
+      ]
     }
   ]
 }
