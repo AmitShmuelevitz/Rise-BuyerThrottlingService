@@ -63,14 +63,18 @@ func New(rdb redis.UniversalClient, opts Options) *Store {
 
 func statsKey(w window.ID) string { return keyPrefix + "stats:" + w.String() }
 
-// AddStats adds the deltas to the window's hash in one pipelined round trip.
-// HINCRBY is atomic, so concurrent pods never lose increments.
+// AddStats adds the deltas to the window's hash in one round trip.
+// HINCRBY is atomic, so concurrent pods never lose increments, and the batch
+// runs in MULTI/EXEC, so a flush that fails applies nothing and the caller's
+// retry cannot double count. (If EXEC succeeds but its reply is lost, the
+// retry does double count: delivery is at least once, which is harmless at
+// the scale of a window.)
 func (s *Store) AddStats(ctx context.Context, w window.ID, deltas map[string]policy.WindowStats) error {
 	if len(deltas) == 0 {
 		return nil
 	}
 	key := statsKey(w)
-	pipe := s.rdb.Pipeline()
+	pipe := s.rdb.TxPipeline() // MULTI/EXEC: a failed flush applies nothing, so a retry cannot double count
 	for buyer, d := range deltas {
 		if d.Total != 0 {
 			pipe.HIncrBy(ctx, key, buyer+":"+fieldTotal, d.Total)
