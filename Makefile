@@ -41,6 +41,13 @@ demo-logs: ## Follow throttling decisions from the evaluators
 	  | grep --line-buffered -E '"buyer|leadership' \
 	  | jq --unbuffered -r -f deploy/demo-logs.jq
 
+.PHONY: demo-verify
+demo-verify: ## Run the demo as an acceptance test: start it, check every buyer's expectations, tear it down
+	docker compose up --build -d
+	go run ./cmd/demoverify; status=$$?; \
+	  if [ $$status -ne 0 ]; then docker compose logs --no-log-prefix evaluator-1 evaluator-2 | tail -100; fi; \
+	  docker compose down -v; exit $$status
+
 .PHONY: demo-down
 demo-down: ## Stop the demo and remove its containers
 	docker compose --profile observability down -v

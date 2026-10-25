@@ -34,6 +34,34 @@ type BuyerSpec struct {
 	Share *float64 `yaml:"share"`
 	// Phases run in order; the last one lasts forever.
 	Phases []Phase `yaml:"phases"`
+	// Expect lists what the throttling system should do to this buyer during
+	// the scenario. It is not used by the simulator itself; cmd/demoverify
+	// checks it against the live system. See Expectation for values.
+	Expect []Expectation `yaml:"expect"`
+}
+
+// Expectation is an observable outcome for one buyer.
+type Expectation string
+
+const (
+	// ExpectNeverThrottled: the throttle rate stays 0 for the whole run.
+	ExpectNeverThrottled Expectation = "never_throttled"
+	// ExpectBlockedOnFailures: blocked with reason failure_rate at some point.
+	ExpectBlockedOnFailures Expectation = "blocked_on_failures"
+	// ExpectBlockedOnTimeouts: blocked with reason timeout_rate at some point.
+	ExpectBlockedOnTimeouts Expectation = "blocked_on_timeouts"
+	// ExpectSnapBack: jumps from a partial recovery straight back to the block level.
+	ExpectSnapBack Expectation = "snap_back"
+	// ExpectRecovered: after being blocked, reaches 0 again.
+	ExpectRecovered Expectation = "recovered"
+)
+
+func (e Expectation) valid() bool {
+	switch e {
+	case ExpectNeverThrottled, ExpectBlockedOnFailures, ExpectBlockedOnTimeouts, ExpectSnapBack, ExpectRecovered:
+		return true
+	}
+	return false
 }
 
 // Phase is a period of fixed behaviour.
@@ -135,6 +163,11 @@ func (s Scenario) validate() error {
 		}
 		if len(b.Phases) == 0 {
 			errs = append(errs, fmt.Errorf("buyer %q: at least one phase is required", b.ID))
+		}
+		for _, e := range b.Expect {
+			if !e.valid() {
+				errs = append(errs, fmt.Errorf("buyer %q: unknown expectation %q", b.ID, e))
+			}
 		}
 		for i, p := range b.Phases {
 			if err := p.validate(); err != nil {

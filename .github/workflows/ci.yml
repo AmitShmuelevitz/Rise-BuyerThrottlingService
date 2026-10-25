@@ -44,9 +44,15 @@ jobs:
         with:
           version: latest
 
-  docker:
+  demo:
+    # Runs the docker-compose demo end to end and checks every buyer's
+    # expectations from deploy/scenario.yaml against the live system.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Build images
-        run: docker compose build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Demo acceptance test
+        run: make demo-verify
