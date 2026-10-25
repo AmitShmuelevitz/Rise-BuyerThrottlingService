@@ -26,6 +26,10 @@ cover: ## Test coverage report
 bench: ## Benchmark the hot path (ShouldCall, Record)
 	go test -run '^$$' -bench . -benchmem ./internal/throttler/
 
+.PHONY: fuzz
+fuzz: ## Fuzz the policy for 30s (property tests run as part of make test)
+	go test -run '^$$' -fuzz FuzzEvaluate -fuzztime 30s ./internal/policy/
+
 .PHONY: lint
 lint: ## Run golangci-lint
 	golangci-lint run ./...
