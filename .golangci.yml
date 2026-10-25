@@ -30,4 +30,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/amit/buyer-throttling
+        - github.com/AmitShmuelevitz/Rise-BuyerThrottlingService

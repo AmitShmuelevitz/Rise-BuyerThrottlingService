@@ -12,8 +12,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
 )
 
 func TestStateHandler(t *testing.T) {

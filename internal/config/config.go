@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
 )
 
 // Env reads typed values from environment variables and collects every parse

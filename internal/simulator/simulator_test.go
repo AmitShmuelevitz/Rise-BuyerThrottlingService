@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
 )
 
 const sample = `

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/throttler"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/throttler"
 )
 
 // Throttle is the part of the throttler an auction needs.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
 )
 
 // Buyers serves the fake buyers' bid endpoint and the runtime overrides.

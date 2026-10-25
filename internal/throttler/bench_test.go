@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/amit/buyer-throttling/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
 
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store/memstore"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/memstore"
 )
 
 // benchThrottler has 200 buyers, a quarter of them throttled.

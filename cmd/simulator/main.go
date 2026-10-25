@@ -12,10 +12,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/amit/buyer-throttling/internal/app"
-	"github.com/amit/buyer-throttling/internal/clock"
-	"github.com/amit/buyer-throttling/internal/config"
-	"github.com/amit/buyer-throttling/internal/simulator"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/app"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/config"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/simulator"
 )
 
 func main() {

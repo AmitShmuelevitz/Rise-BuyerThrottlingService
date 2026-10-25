@@ -1,4 +1,4 @@
-module github.com/amit/buyer-throttling
+module github.com/AmitShmuelevitz/Rise-BuyerThrottlingService
 
 go 1.26.0
 

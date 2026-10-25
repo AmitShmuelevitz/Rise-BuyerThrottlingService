@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/amit/buyer-throttling/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
 )
 
 // StateFunc returns the throttle state to serve.

@@ -21,9 +21,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store"
-	"github.com/amit/buyer-throttling/internal/window"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/window"
 )
 
 var _ store.Store = (*Store)(nil)

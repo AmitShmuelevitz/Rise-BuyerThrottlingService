@@ -8,9 +8,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/amit/buyer-throttling/internal/evaluator"
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/throttler"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/evaluator"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/throttler"
 )
 
 var (

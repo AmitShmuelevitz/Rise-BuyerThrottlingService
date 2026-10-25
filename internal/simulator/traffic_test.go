@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/auction"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/auction"
 )
 
 func TestTraffic_SendsAtRateAndReports(t *testing.T) {

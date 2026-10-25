@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/amit/buyer-throttling/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
 )
 
 func TestThrottler(t *testing.T) {

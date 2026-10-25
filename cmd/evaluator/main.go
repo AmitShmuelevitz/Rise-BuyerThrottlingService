@@ -15,13 +15,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/amit/buyer-throttling/internal/app"
-	"github.com/amit/buyer-throttling/internal/config"
-	"github.com/amit/buyer-throttling/internal/evaluator"
-	"github.com/amit/buyer-throttling/internal/httpapi"
-	"github.com/amit/buyer-throttling/internal/metrics"
-	"github.com/amit/buyer-throttling/internal/store"
-	"github.com/amit/buyer-throttling/internal/store/redisstore"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/app"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/config"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/evaluator"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/httpapi"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/metrics"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/redisstore"
 )
 
 func main() {

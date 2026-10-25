@@ -13,12 +13,12 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/amit/buyer-throttling/internal/clock"
-	"github.com/amit/buyer-throttling/internal/evaluator"
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store/redisstore"
-	"github.com/amit/buyer-throttling/internal/throttler"
-	"github.com/amit/buyer-throttling/internal/window"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/evaluator"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/redisstore"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/throttler"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/window"
 )
 
 const (

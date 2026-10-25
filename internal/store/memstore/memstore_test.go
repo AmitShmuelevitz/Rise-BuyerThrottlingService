@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/clock"
-	"github.com/amit/buyer-throttling/internal/store"
-	"github.com/amit/buyer-throttling/internal/store/memstore"
-	"github.com/amit/buyer-throttling/internal/store/storetest"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/memstore"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/storetest"
 )
 
 func TestConformance(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/throttler"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/throttler"
 )
 
 type fakeThrottle struct {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
 )
 
 func TestPolicy_Defaults(t *testing.T) {

@@ -15,10 +15,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/clock"
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store"
-	"github.com/amit/buyer-throttling/internal/window"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/clock"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/window"
 )
 
 // Metrics receives evaluator telemetry.

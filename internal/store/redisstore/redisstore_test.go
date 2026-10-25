@@ -9,10 +9,10 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/amit/buyer-throttling/internal/policy"
-	"github.com/amit/buyer-throttling/internal/store"
-	"github.com/amit/buyer-throttling/internal/store/redisstore"
-	"github.com/amit/buyer-throttling/internal/store/storetest"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/policy"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/redisstore"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/store/storetest"
 )
 
 // TestConformance runs the suite against miniredis, an in-process Redis

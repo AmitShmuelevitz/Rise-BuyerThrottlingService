@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/amit/buyer-throttling/internal/auction"
+	"github.com/AmitShmuelevitz/Rise-BuyerThrottlingService/internal/auction"
 )
 
 // Traffic sends ad requests to the auction pods at a fixed rate, picking the
