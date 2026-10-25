@@ -2,7 +2,23 @@
 
 Monitors the health of external buyers in a real-time auction platform and controls how much traffic each one receives. A bad buyer is blocked down to 5% of its traffic, then recovers in 10% steps once it is healthy again.
 
-Written in Go. Redis is the only dependency. Design notes and the decisions behind them are in [DESIGN.md](DESIGN.md).
+Written in Go. Redis is the only dependency. Design notes, diagrams and the decisions behind them are in [DESIGN.md](DESIGN.md).
+
+## Review in 5 minutes
+
+1. **See it work:** `make demo-verify` starts the whole system, waits until every buyer has done what [`deploy/scenario.yaml`](deploy/scenario.yaml) says it should (blocked, snapped back, recovered, or never throttled), checks that all pods converged, and tears it down. About 4 minutes; CI runs it on every push.
+2. **The decisions:** the table in [DESIGN.md](DESIGN.md#decisions-where-the-spec-is-silent) covers every case the spec left open.
+3. **The rules:** [`internal/policy/policy.go`](internal/policy/policy.go) is one pure function, `Evaluate`, with its table tests, a multi-window scenario and property tests next to it.
+4. **The hot path:** `ShouldCall` and `Record` in [`internal/throttler/throttler.go`](internal/throttler/throttler.go). No I/O, no locks, no allocations, about 16 ns.
+5. **The distributed parts:** [`internal/evaluator/evaluator.go`](internal/evaluator/evaluator.go) (lease, exactly-once commits) and [`internal/e2e/live_test.go`](internal/e2e/live_test.go), which proves pod convergence, leader crash failover and Redis outage behaviour in real time against Redis.
+
+```mermaid
+flowchart LR
+    pods["Auction pods<br/>ShouldCall / Record in memory"] -- "stats deltas every 1s" --> redis[("Redis")]
+    redis -- "closed window" --> eval["Evaluator<br/>(leader of 2)"]
+    eval -- "new throttle state + publish" --> redis
+    redis -- "state: pub/sub nudge + 1s poll" --> pods
+```
 
 ## Run the demo
 
@@ -88,7 +104,17 @@ docker compose --profile observability up --build
 
 Prometheus on http://localhost:9090 and a provisioned Grafana dashboard on http://localhost:3000 (anonymous access) showing throttle rate, failure and timeout rates, calls and throttled requests per buyer, each pod's view and the current leader.
 
+Besides `throttle_rate` and the per-buyer call, throttled, failure and timeout series, pods export `throttle_state_age_seconds` (alert when it exceeds a few windows: the evaluator has stopped) and `throttle_config_mismatch` (a pod's window size differs from the evaluator's).
+
 `make demo-down` stops everything.
+
+### As an acceptance test
+
+```sh
+make demo-verify
+```
+
+Each buyer in the scenario declares what should happen to it (`expect: [blocked_on_failures, snap_back, recovered]`, `expect: [never_throttled]`, ...). [`cmd/demoverify`](cmd/demoverify/main.go) watches `GET /state` until every expectation holds, fails immediately if a `never_throttled` buyer is ever throttled, then checks that all three pods serve the evaluator's state version. On failure it prints what is still pending and the evaluator logs. CI runs it on every push.
 
 ## Configuration
 
@@ -146,8 +172,10 @@ if th.ShouldCall(buyerID) {
 ## Development
 
 ```sh
-make test               # unit, store conformance (miniredis), e2e; with -race
+make test               # everything below, with -race (-short skips the real-time e2e tests)
 make test-integration   # conformance suite against a real Redis at REDIS_ADDR
+make demo-verify        # the docker-compose demo as an acceptance test
+make fuzz               # fuzz the policy for 30s
 make bench              # hot path benchmarks
 make lint               # golangci-lint
 make cover              # coverage summary
@@ -156,10 +184,13 @@ make cover              # coverage summary
 | Test layer | Where | Covers |
 | --- | --- | --- |
 | Policy rules | `internal/policy` | Block on failure and timeout rate, exact thresholds, minimum sample, 10-step recovery, snap-back, under-sample during recovery, the optional probe, a 19-window scenario, config validation |
+| Policy properties | `internal/policy/property_test.go` | Random configurations and window histories ([rapid](https://github.com/flyingmutant/rapid)): the rate stays in [0, block level], rises only on a violation, never changes on an under-sample window, drops exactly one step per clean window, and recovery always takes ceil(block / step) clean windows. Plus a native Go fuzz target |
 | Store conformance | `internal/store/storetest` | One suite run against `memstore`, Redis via miniredis and a real Redis: concurrent stat sums, window isolation, idempotent commits, pub/sub, lease expiry and takeover |
 | Throttler | `internal/throttler` | Fail open before first load, skip ratio within 5 sigma of the rate, 64 goroutines recording concurrently, window bucketing, retry and drop after store failure, fail static on sync errors, final flush on shutdown |
 | Evaluator | `internal/evaluator` | Grace period, block-to-recovery across windows, silent buyers, one commit per window, leader-only evaluation, failover, split brain, lease release |
-| End to end | `internal/e2e` | 2-3 real throttlers and an evaluator on one Redis under a fake clock: every pod converges on the same rate through block, recovery and relapse |
+| End to end, simulated time | `internal/e2e/e2e_test.go` | 2-3 real throttlers and an evaluator on one Redis under a fake clock: every pod converges on the same rate through block, recovery and relapse |
+| End to end, real time | `internal/e2e/live_test.go` | Real loops on real Redis (miniredis when `REDIS_ADDR` is unset). **Convergence:** after each of 10 commits, all 3 pods serve the new version in about 8 ms with pub/sub and under one poll interval with polling only. **Leader crash:** the leader dies holding its lease; the standby takes over within the lease TTL, applies no window twice and continues the recovery step by step. **Redis outage:** pods keep throttling from the last state, every call recorded during the outage reaches Redis exactly once, and new state arrives after the restart |
+| Demo acceptance | `cmd/demoverify` | The full docker-compose system against the scenario's expectations |
 
 Benchmarks on a 4-core cloud VM:
 
@@ -189,4 +220,7 @@ deploy/                                         scenario, Prometheus, Grafana
 - **Graceful shutdown flush**: rolling deploys of auction pods lose no stats.
 - **Store conformance suite**: the in-memory store used in tests is proven to behave like Redis.
 - **Per-pod `/state`**: shows directly that pods converge.
+- **Executable demo**: the scenario carries its own expectations and CI checks them against the running system, so the demo cannot silently rot.
+- **Window size mismatch guard and state age metric**: the two misconfigurations that would silently corrupt throttling (pods and evaluator disagreeing on windows, or no evaluator running) are detected and exported.
+- **Atomic stats flush**: MULTI/EXEC means a failed flush applies nothing, so its retry cannot double count.
 - **Opt-in stale-recovery probe**: addresses the one real weakness of the neutral under-sample rule (low-volume buyers can stay blocked) without changing the default behaviour.

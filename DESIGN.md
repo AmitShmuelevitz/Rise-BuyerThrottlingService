@@ -2,21 +2,70 @@
 
 ## Components and flow
 
+```mermaid
+flowchart TB
+    sim["Simulator<br/>traffic generator + fake buyers"]
+    subgraph pods["Auction pods (N)"]
+        th["Throttler<br/>ShouldCall / Record on an in-memory snapshot and atomic counters"]
+    end
+    subgraph redis["Redis"]
+        stats[("stats per window<br/>HINCRBY")]
+        state[("throttle state + version<br/>pub/sub on change")]
+        lease[("leader lease")]
+    end
+    e1["Evaluator (active)"]
+    e2["Evaluator (standby)"]
+    sim -- "ad requests" --> th
+    th -- "bid calls, 150ms deadline" --> sim
+    th -- "flush deltas every 1s" --> stats
+    state -- "reload: pub/sub nudge + 1s poll" --> th
+    stats -- "read closed window" --> e1
+    e1 -- "Lua commit + publish" --> state
+    e1 -- "renew" --> lease
+    e2 -. "takes over when it expires" .-> lease
 ```
-             ad requests                            bid calls (150ms deadline)
- simulator ───────────────► auction pods (N) ─────────────────────────────► fake buyers
-                             │ ShouldCall / Record (in-memory)
-                stats deltas │ every 1s        ▲ state reload (1s poll + pub/sub nudge)
-                             ▼                 │
-                    ┌──────────────── Redis ────────────────┐
-                    │ {throttle}:stats:<window>  (HINCRBY)  │
-                    │ {throttle}:state + :meta   (Lua)      │
-                    │ throttle:updates           (pub/sub)  │
-                    │ {throttle}:leader          (lease)    │
-                    └───────────────────────────────────────┘
-                             ▲ commit + publish   │ read closed window
-                             │                    ▼
-                         evaluator (active)    evaluator (standby)
+
+One evaluation cycle, end to end:
+
+```mermaid
+sequenceDiagram
+    participant P as Auction pods
+    participant R as Redis
+    participant E as Evaluator (leader)
+    loop every request
+        P->>P: ShouldCall (atomic read, no I/O)
+        P->>P: Record (atomic add)
+    end
+    loop every 1s
+        P->>R: HINCRBY deltas into stats:<window> (MULTI/EXEC)
+    end
+    Note over E: window closes, wait 5s grace
+    E->>R: renew lease (SET NX PX / PEXPIRE)
+    E->>R: HGETALL stats:<window>, HGETALL state
+    E->>E: policy.Evaluate per buyer (pure)
+    E->>R: Lua: write states, last_window, version++, PUBLISH
+    R-->>P: version on throttle:updates
+    P->>R: MULTI HGETALL state, meta EXEC
+    P->>P: atomic swap of the snapshot
+```
+
+A buyer's throttle rate over time:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Open
+    Open --> Blocked: violation
+    Blocked --> Recovering: clean window
+    Recovering --> Recovering: clean window (rate - step)
+    Recovering --> Blocked: violation (snap back)
+    Recovering --> Open: rate reaches 0
+    note right of Blocked
+        violation = failure or timeout rate at or above
+        its threshold in a window with at least the
+        minimum sample. A window below the minimum
+        sample changes nothing in any state.
+    end note
 ```
 
 - **`policy`**: the rules as one pure function, `Evaluate(prev, windowStats, cfg) → decision`. No I/O, no clock.
@@ -24,9 +73,9 @@
 - **`evaluator`**: on each window boundary + grace period, reads the closed window's stats, applies `policy`, commits.
 - **`store`**: small interfaces (`StatsSink`, `StatsSource`, `StateReader`, `StateWriter`, `Leaser`). `redisstore` for production, `memstore` for tests; both pass the same conformance suite.
 
-**Stats flow up.** `Record` increments per-buyer atomic counters. Each second the flusher swaps them to zero and sends one pipelined `HINCRBY` batch into the hash of the window those counts belong to (windows are epoch-aligned, so every pod buckets identically). Redis load scales with pods × buyers, not with request rate.
+**Stats flow up.** `Record` increments per-buyer atomic counters. Each second the flusher swaps them to zero and sends one `HINCRBY` batch, wrapped in MULTI/EXEC so a failed flush applies nothing and its retry cannot double count, into the hash of the window those counts belong to (windows are epoch-aligned, so every pod buckets identically). Redis load scales with pods × buyers, not with request rate.
 
-**State flows down.** The evaluator writes every buyer's record, `last_window` and a new `version` in one Lua script, which also publishes the version. Pods reload on that message and also poll every second, so a lost message costs at most a second.
+**State flows down.** The evaluator writes every buyer's record, `last_window` and a new `version` in one Lua script, which also publishes the version. Pods reload on that message and also poll every second, so a lost message costs at most a second. Measured in the e2e tests: all pods serve a new version within about 8 ms with pub/sub, and within one poll interval without it.
 
 ## Keeping the per-request check fast
 
@@ -38,6 +87,8 @@
 - **One active evaluator.** Replicas compete for a Redis lease (`SET NX PX`, renewed each second, released on shutdown). Failover takes at most the lease TTL (15s), or about a second after a clean shutdown.
 - **Exactly-once per window.** The commit script refuses a window that is not newer than `last_window`, so even a split brain cannot apply a window twice.
 - **Late stats.** A window is evaluated only after a grace period (default 5s, longer than the flush interval plus clock skew).
+- **Same windows everywhere.** The evaluator stamps its window size on every record. A pod configured with a different `THROTTLE_WINDOW` logs an error and sets `throttle_config_mismatch`, since its stats would land in windows the evaluator never reads.
+- **Stale state is visible.** Pods export `throttle_state_age_seconds` and warn once when nothing has been committed for three windows (for example every evaluator is down). They keep serving the last state meanwhile.
 
 ## Decisions where the spec is silent
 
@@ -65,4 +116,4 @@
 - **Redis as the only dependency.** It provides atomic counters, a state hash, pub/sub and a lease. One Redis is a single point of failure for *updates* only; pods keep serving from the last snapshot. Production would use a replicated Redis; keys share a hash tag so the Lua scripts remain valid on Redis Cluster.
 - **Up to 1s of a pod's stats can be lost** on a crash (graceful shutdown flushes). Negligible against a window of thousands of calls.
 
-Not built, but natural next steps: per-buyer policy overrides, an alert on state age, and a separate low-volume policy instead of the opt-in probe.
+Not built, but natural next steps: per-buyer policy overrides, alert rules on `throttle_state_age_seconds` and `throttle_config_mismatch`, and a separate low-volume policy instead of the opt-in probe.
