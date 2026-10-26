@@ -1,0 +1,127 @@
+# promtool unit tests for deploy/alerts.yml: make test-alerts
+rule_files: [alerts.yml]
+evaluation_interval: 10s
+
+tests:
+  # auction-1 is healthy; auction-2 stops receiving new state and its age grows
+  # past three windows (30s) at t=40s, firing after 30s more.
+  - interval: 10s
+    input_series:
+      - series: 'throttle_window_seconds{job="auction",instance="auction-1:8080"}'
+        values: '10x30'
+      - series: 'throttle_window_seconds{job="auction",instance="auction-2:8080"}'
+        values: '10x30'
+      - series: 'throttle_state_age_seconds{job="auction",instance="auction-1:8080"}'
+        values: '15x30'
+      - series: 'throttle_state_age_seconds{job="auction",instance="auction-2:8080"}'
+        values: '15+5x30'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: ThrottleStateStale
+        exp_alerts: []
+      - eval_time: 80s
+        alertname: ThrottleStateStale
+        exp_alerts:
+          - exp_labels: {severity: critical, job: auction, instance: "auction-2:8080"}
+            exp_annotations:
+              summary: "Throttle state on auction-2:8080 is 55s old"
+              description: "No evaluator has committed new throttle state for three windows. Pods keep serving the last state, so bad buyers are not blocked and blocked buyers do not recover. Check that an evaluator holds the lease and can reach Redis."
+
+  # The threshold scales with the window: 150s old is healthy for 60s windows.
+  - interval: 10s
+    input_series:
+      - series: 'throttle_window_seconds{job="auction",instance="auction-1:8080"}'
+        values: '60x30'
+      - series: 'throttle_state_age_seconds{job="auction",instance="auction-1:8080"}'
+        values: '150x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ThrottleStateStale
+        exp_alerts: []
+
+  - interval: 10s
+    input_series:
+      - series: 'throttle_config_mismatch{job="auction",instance="auction-1:8080"}'
+        values: '0x20'
+      - series: 'throttle_config_mismatch{job="auction",instance="auction-3:8080"}'
+        values: '0 0 1x20'
+    alert_rule_test:
+      - eval_time: 70s
+        alertname: ThrottleWindowMismatch
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: ThrottleWindowMismatch
+        exp_alerts:
+          - exp_labels: {severity: critical, job: auction, instance: "auction-3:8080"}
+            exp_annotations:
+              summary: "auction-3:8080 uses a different THROTTLE_WINDOW than the evaluator"
+              description: "This pod writes stats into windows the evaluator does not read, so its traffic is missing from every decision. Set THROTTLE_WINDOW to the same value on the evaluator and every pod."
+
+  # A normal failover: the standby takes the lease 20s after the leader dies.
+  - interval: 10s
+    input_series:
+      - series: 'evaluator_is_leader{job="evaluator",instance="evaluator-1:8080"}'
+        values: '1 1 0x20'
+      - series: 'evaluator_is_leader{job="evaluator",instance="evaluator-2:8080"}'
+        values: '0 0 0 0 1x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ThrottleEvaluatorNoLeader
+        exp_alerts: []
+
+  # Nobody takes over.
+  - interval: 10s
+    input_series:
+      - series: 'evaluator_is_leader{job="evaluator",instance="evaluator-1:8080"}'
+        values: '1 1 0x20'
+      - series: 'evaluator_is_leader{job="evaluator",instance="evaluator-2:8080"}'
+        values: '0x22'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: ThrottleEvaluatorNoLeader
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: ThrottleEvaluatorNoLeader
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No evaluator replica holds the leader lease"
+              description: "Evaluators are running but none is evaluating windows. Check their logs for Redis errors."
+
+  - interval: 10s
+    input_series:
+      - series: 'evaluator_runs_total{job="evaluator",instance="evaluator-1:8080",outcome="applied"}'
+        values: '0+1x60'
+      - series: 'evaluator_runs_total{job="evaluator",instance="evaluator-1:8080",outcome="error"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ThrottleEvaluatorFailing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ThrottleEvaluatorFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: evaluator, instance: "evaluator-1:8080", outcome: error}
+            exp_annotations:
+              summary: "Evaluator evaluator-1:8080 keeps failing to evaluate windows"
+              description: "Window evaluations have been failing for 5 minutes. Missed windows are skipped, so throttle state falls behind buyer health."
+
+  # One drop at t=30s fires at once and clears five minutes later.
+  - interval: 10s
+    input_series:
+      - series: 'throttle_stats_dropped_total{job="auction",instance="auction-1:8080"}'
+        values: '0 0 0 120x50'
+    alert_rule_test:
+      - eval_time: 20s
+        alertname: ThrottleStatsDropped
+        exp_alerts: []
+      - eval_time: 40s
+        alertname: ThrottleStatsDropped
+        exp_alerts:
+          - exp_labels: {severity: warning, job: auction, instance: "auction-1:8080"}
+            exp_annotations:
+              summary: "auction-1:8080 dropped buyer stats"
+              description: "The pod could not flush stats to Redis for longer than a window and dropped them. Decisions for those windows used partial data."
+      - eval_time: 7m
+        alertname: ThrottleStatsDropped
+        exp_alerts: []

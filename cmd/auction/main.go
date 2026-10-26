@@ -67,7 +67,7 @@ func run() error {
 		FlushInterval: flushInterval,
 		SyncInterval:  syncInterval,
 		Logger:        logger,
-		Metrics:       metrics.NewThrottler(reg),
+		Metrics:       metrics.NewThrottler(reg, pol.Window),
 	})
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()

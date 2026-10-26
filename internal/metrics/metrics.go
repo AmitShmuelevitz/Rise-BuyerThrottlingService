@@ -35,8 +35,9 @@ type Throttler struct {
 	known map[string]struct{} // buyers with a rate gauge, so cleared buyers are reset to 0
 }
 
-// NewThrottler registers the pod's metrics on reg.
-func NewThrottler(reg prometheus.Registerer) *Throttler {
+// NewThrottler registers the pod's metrics on reg. window is the pod's
+// evaluation window, exported so alert rules can scale with it.
+func NewThrottler(reg prometheus.Registerer, window time.Duration) *Throttler {
 	m := &Throttler{
 		calls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "buyer_calls_total", Help: "Calls made to buyers, by result.",
@@ -74,7 +75,11 @@ func NewThrottler(reg prometheus.Registerer) *Throttler {
 		}
 		return time.Since(time.Unix(0, end)).Seconds()
 	})
-	reg.MustRegister(m.calls, m.skipped, m.rate, m.version, m.flushErrors, m.droppedStats, m.syncErrors, m.mismatch, age)
+	windowSeconds := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "throttle_window_seconds", Help: "Evaluation window size this pod is configured with.",
+	})
+	windowSeconds.Set(window.Seconds())
+	reg.MustRegister(m.calls, m.skipped, m.rate, m.version, m.flushErrors, m.droppedStats, m.syncErrors, m.mismatch, age, windowSeconds)
 	return m
 }
 

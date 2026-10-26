@@ -13,7 +13,7 @@ import (
 
 func TestThrottler(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewThrottler(reg)
+	m := NewThrottler(reg, time.Minute)
 	m.AddCalls("b", 3, 2, 1)
 	m.AddSkipped("b", 5)
 	m.SetRates(map[string]float64{"b": 0.95})
@@ -76,7 +76,7 @@ func TestEvaluator(t *testing.T) {
 
 func TestThrottler_StateAgeAndMismatch(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewThrottler(reg)
+	m := NewThrottler(reg, time.Minute)
 
 	get := func(name string) float64 {
 		t.Helper()

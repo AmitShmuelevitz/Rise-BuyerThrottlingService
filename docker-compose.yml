@@ -115,6 +115,7 @@ services:
     profiles: ["observability"]
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alerts.yml:/etc/prometheus/alerts.yml:ro
     ports: ["9090:9090"]
 
   grafana:

@@ -104,7 +104,19 @@ docker compose --profile observability up --build
 
 Prometheus on http://localhost:9090 and a provisioned Grafana dashboard on http://localhost:3000 (anonymous access) showing throttle rate, failure and timeout rates, calls and throttled requests per buyer, each pod's view and the current leader.
 
-Besides `throttle_rate` and the per-buyer call, throttled, failure and timeout series, pods export `throttle_state_age_seconds` (alert when it exceeds a few windows: the evaluator has stopped) and `throttle_config_mismatch` (a pod's window size differs from the evaluator's).
+Besides `throttle_rate` and the per-buyer call, throttled, failure and timeout series, pods export `throttle_state_age_seconds` and `throttle_config_mismatch`.
+
+**Alerts.** [`deploy/alerts.yml`](deploy/alerts.yml) is loaded by Prometheus in this profile (see http://localhost:9090/alerts; no Alertmanager is wired up):
+
+| Alert | Fires when |
+| --- | --- |
+| `ThrottleStateStale` (critical) | A pod's state is older than three windows: no evaluator is committing, so nobody gets blocked or recovers |
+| `ThrottleWindowMismatch` (critical) | A pod's `THROTTLE_WINDOW` differs from the evaluator's, so its stats are missing from decisions |
+| `ThrottleEvaluatorNoLeader` (critical) | Evaluators are up but none has held the lease for a minute |
+| `ThrottleEvaluatorFailing` (warning) | Window evaluations have been failing for 5 minutes |
+| `ThrottleStatsDropped` (warning) | A pod dropped stats after Redis was unreachable for over a window |
+
+The stale threshold scales with the window through `throttle_window_seconds`, so the same rules work for the 10s demo and 1m production windows. `make test-alerts` runs promtool unit tests for each rule ([`deploy/alerts_test.yml`](deploy/alerts_test.yml)), including a normal failover that must not fire, and a Go test fails if an alert reads a metric the code no longer exports.
 
 `make demo-down` stops everything.
 
@@ -174,6 +186,7 @@ if th.ShouldCall(buyerID) {
 ```sh
 make test               # everything below, with -race (-short skips the real-time e2e tests)
 make test-integration   # conformance suite and live e2e against a real Redis at REDIS_ADDR (flushes it)
+make test-alerts        # promtool unit tests for the Prometheus alert rules (Docker)
 make demo-verify        # the docker-compose demo as an acceptance test
 make fuzz               # fuzz the policy for 30s
 make bench              # hot path benchmarks
@@ -222,5 +235,6 @@ deploy/                                         scenario, Prometheus, Grafana
 - **Per-pod `/state`**: shows directly that pods converge.
 - **Executable demo**: the scenario carries its own expectations and CI checks them against the running system, so the demo cannot silently rot.
 - **Window size mismatch guard and state age metric**: the two misconfigurations that would silently corrupt throttling (pods and evaluator disagreeing on windows, or no evaluator running) are detected and exported.
+- **Tested alert rules**: metrics only help if someone is told. Five alerts cover the failures that stop throttling from working without any error reaching an auction, and promtool unit tests prove each fires when it should and stays quiet during a normal failover.
 - **Atomic stats flush**: MULTI/EXEC means a failed flush applies nothing, so its retry cannot double count.
 - **Opt-in stale-recovery probe**: addresses the one real weakness of the neutral under-sample rule (low-volume buyers can stay blocked) without changing the default behaviour.

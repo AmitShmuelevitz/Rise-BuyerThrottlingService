@@ -17,6 +17,12 @@ test: ## Run unit, conformance and end-to-end tests with the race detector
 test-integration: ## Run the store conformance suite and live e2e tests against a real Redis (REDIS_ADDR)
 	REDIS_ADDR=$(REDIS_ADDR) go test -race -count=1 -p 1 ./internal/store/redisstore/ ./internal/e2e/
 
+PROMETHEUS_IMAGE ?= prom/prometheus:v3.5.0
+
+.PHONY: test-alerts
+test-alerts: ## Unit test the Prometheus alert rules with promtool (runs in Docker)
+	docker run --rm -v "$(CURDIR)/deploy:/deploy:ro" --entrypoint promtool $(PROMETHEUS_IMAGE) test rules /deploy/alerts_test.yml
+
 .PHONY: cover
 cover: ## Test coverage report
 	go test -coverprofile=coverage.out ./internal/...

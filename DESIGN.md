@@ -88,7 +88,7 @@ stateDiagram-v2
 - **Exactly-once per window.** The commit script refuses a window that is not newer than `last_window`, so even a split brain cannot apply a window twice.
 - **Late stats.** A window is evaluated only after a grace period (default 5s, longer than the flush interval plus clock skew).
 - **Same windows everywhere.** The evaluator stamps its window size on every record. A pod configured with a different `THROTTLE_WINDOW` logs an error and sets `throttle_config_mismatch`, since its stats would land in windows the evaluator never reads.
-- **Stale state is visible.** Pods export `throttle_state_age_seconds` and warn once when nothing has been committed for three windows (for example every evaluator is down). They keep serving the last state meanwhile.
+- **Stale state is visible.** Pods export `throttle_state_age_seconds` and warn once when nothing has been committed for three windows (for example every evaluator is down). They keep serving the last state meanwhile. Both conditions have alert rules (`deploy/alerts.yml`).
 
 ## Decisions where the spec is silent
 
@@ -116,4 +116,4 @@ stateDiagram-v2
 - **Redis as the only dependency.** It provides atomic counters, a state hash, pub/sub and a lease. One Redis is a single point of failure for *updates* only; pods keep serving from the last snapshot. Production would use a replicated Redis; keys share a hash tag so the Lua scripts remain valid on Redis Cluster.
 - **Up to 1s of a pod's stats can be lost** on a crash (graceful shutdown flushes). Negligible against a window of thousands of calls.
 
-Not built, but natural next steps: per-buyer policy overrides, alert rules on `throttle_state_age_seconds` and `throttle_config_mismatch`, and a separate low-volume policy instead of the opt-in probe.
+Not built, but natural next steps: per-buyer policy overrides and a separate low-volume policy instead of the opt-in probe.
