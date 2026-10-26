@@ -45,7 +45,7 @@ The demo uses a **10s window** so a full block-and-recover cycle takes about 2-3
 | `buyer_slow` | 50% of responses slower than the 150ms deadline for 60s | Blocked on `timeout_rate`, then recovers |
 | `buyer_relapse` | Fails, recovers for 50s, fails again for 20s | Snaps back from mid-recovery straight to 0.95 |
 | `buyer_flaky` | 50% failures forever | Never blocked (below the 0.7 threshold) |
-| `buyer_tiny` | 100% failures, ~8 requests/s | Never blocked (below the 100-request minimum sample) |
+| `buyer_tiny` | 100% failures, ~4 requests/s | Never blocked (below the 100-request minimum sample) |
 | `buyer_healthy_1/2` | Healthy | Never throttled |
 
 ### Watching it

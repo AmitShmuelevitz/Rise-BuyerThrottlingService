@@ -2,8 +2,10 @@ package simulator
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +153,39 @@ func TestOverride(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("DELETE", "/buyers/tiny", nil))
 	if rec.Code != 204 || get(h, "/bid/tiny").Code != 500 {
 		t.Fatal("DELETE did not restore the scenario behaviour")
+	}
+}
+
+// TestDemoScenario_TinyBuyerStaysBelowMinimumSample guards the demo against a
+// flaky buyer_tiny: a buyer expected to stay unthrottled while failing must
+// stay below the minimum sample in every window, not just on average. Each
+// request picks the buyer at random, so its per-window count is binomial;
+// five standard deviations of margin make a chance block practically
+// impossible over a demo run.
+func TestDemoScenario_TinyBuyerStaysBelowMinimumSample(t *testing.T) {
+	const (
+		window        = 10 * time.Second // docker-compose.yml THROTTLE_WINDOW
+		minSampleSize = 100              // docker-compose.yml THROTTLE_MIN_SAMPLE_SIZE
+	)
+	s, err := LoadScenario("../../deploy/scenario.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, b := range s.Buyers {
+		if !slices.Contains(b.Expect, ExpectNeverThrottled) || b.ShareOrDefault() == 1 {
+			continue
+		}
+		n := float64(s.RPS) * window.Seconds()
+		p := b.ShareOrDefault()
+		mean, sd := n*p, math.Sqrt(n*p*(1-p))
+		if mean+5*sd >= minSampleSize {
+			t.Errorf("%s: %.0f±%.1f requests per window can reach the minimum sample of %d; lower its share",
+				b.ID, mean, sd, minSampleSize)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no low-volume never_throttled buyer in the demo scenario")
 	}
 }

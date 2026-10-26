@@ -59,10 +59,12 @@ buyers:
     phases:
       - failure_rate: 0.5
 
-  # Always failing but tiny: ~8 requests/s, ~80 per 10s window, below the
-  # 100-request minimum sample, so it is never blocked.
+  # Always failing but tiny: ~4 requests/s, ~40 per 10s window, below the
+  # 100-request minimum sample, so it is never blocked. Each request picks the
+  # buyer at random, so the count varies (about +-6 per window); 40 keeps a
+  # window from reaching 100 by chance.
   - id: buyer_tiny
     expect: [never_throttled]
-    share: 0.01
+    share: 0.005
     phases:
       - failure_rate: 1.0
