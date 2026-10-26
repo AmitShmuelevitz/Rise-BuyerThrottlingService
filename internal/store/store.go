@@ -47,6 +47,9 @@ type StatsSource interface {
 // StateReader is how auction pods read throttle state.
 type StateReader interface {
 	LoadState(ctx context.Context) (Snapshot, error)
+	// Version returns the current state version without loading the
+	// state, so pods can poll cheaply and load only when it changed.
+	Version(ctx context.Context) (uint64, error)
 	// SubscribeUpdates delivers the new version after each commit. Delivery
 	// is best effort: callers must still poll LoadState periodically.
 	// The channel is closed when ctx is done or the subscription fails.

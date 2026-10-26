@@ -281,6 +281,45 @@ func TestFlush_DropsStatsOlderThanMaxPendingAge(t *testing.T) {
 	}
 }
 
+func TestFlush_StopsRetryingWhenTheEvaluatorHasReadTheWindow(t *testing.T) {
+	// By default a window's stats are retried until the evaluator's default
+	// grace (5s) after it ends. Later they are dropped and reported, because
+	// the evaluator has already read that window and never reads it again.
+	tests := []struct {
+		name        string
+		recoveredAt time.Duration // after t0; the window [t0, t0+10s) ends at 10s
+		wantWritten int64
+		wantDropped int64
+	}{
+		{"store back within grace: retried", 14 * time.Second, 1, 0},
+		{"store back after grace: dropped", 16 * time.Second, 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := clock.NewFake(t0)
+			s := memstore.New(c)
+			sink := &failingSink{down: true, next: s}
+			m := &recordingMetrics{}
+			th := New(s, sink, Options{Clock: c, Window: 10 * time.Second, Metrics: m})
+			ctx := context.Background()
+
+			th.Record("b", ResultOK)
+			c.Advance(time.Second)
+			_ = th.Flush(ctx) // fails: window t0 stays pending
+
+			sink.down = false
+			c.Set(t0.Add(tt.recoveredAt))
+			if err := th.Flush(ctx); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := s.WindowStats(ctx, window.Of(t0, 10*time.Second))
+			if got["b"].Total != tt.wantWritten || m.dropped != tt.wantDropped {
+				t.Fatalf("written = %d, dropped = %d; want %d, %d", got["b"].Total, m.dropped, tt.wantWritten, tt.wantDropped)
+			}
+		})
+	}
+}
+
 func TestMetrics_ReportedOnFlush(t *testing.T) {
 	m := &recordingMetrics{}
 	th, s, _ := newTestThrottler(t, Options{Metrics: m, Rand: func() float64 { return 0 }})
@@ -342,6 +381,50 @@ func (f *flakyReader) LoadState(ctx context.Context) (store.Snapshot, error) {
 		return store.Snapshot{}, errors.New("store down")
 	}
 	return f.StateReader.LoadState(ctx)
+}
+
+func (f *flakyReader) Version(ctx context.Context) (uint64, error) {
+	if f.fail {
+		return 0, errors.New("store down")
+	}
+	return f.StateReader.Version(ctx)
+}
+
+// countingReader counts full state loads.
+type countingReader struct {
+	store.StateReader
+	loads int
+}
+
+func (r *countingReader) LoadState(ctx context.Context) (store.Snapshot, error) {
+	r.loads++
+	return r.StateReader.LoadState(ctx)
+}
+
+func TestSync_LoadsFullStateOnlyWhenVersionChanges(t *testing.T) {
+	c := clock.NewFake(t0)
+	s := memstore.New(c)
+	reader := &countingReader{StateReader: s}
+	th := New(reader, s, Options{Clock: c})
+	ctx := context.Background()
+	commit(t, s, 60, policy.State{BuyerID: "b", ThrottleRate: 0.95})
+
+	for range 5 {
+		if err := th.Sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if reader.loads != 1 {
+		t.Fatalf("full loads = %d after 5 polls of an unchanged version, want 1", reader.loads)
+	}
+
+	commit(t, s, 120, policy.State{BuyerID: "b", ThrottleRate: 0.85, Reason: policy.ReasonRecovering})
+	if err := th.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reader.loads != 2 || th.Rate("b") != 0.85 {
+		t.Fatalf("after a new commit: loads = %d, rate = %v; want 2, 0.85", reader.loads, th.Rate("b"))
+	}
 }
 
 func TestRun_SyncsOnNotificationAndFlushesOnShutdown(t *testing.T) {

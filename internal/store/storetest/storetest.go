@@ -108,6 +108,9 @@ func testEmptyState(t *testing.T, newStore Factory) {
 	if snap.Version != 0 || len(snap.States) != 0 {
 		t.Fatalf("empty store snapshot = %+v", snap)
 	}
+	if v, err := s.Version(ctx(t)); err != nil || v != 0 {
+		t.Fatalf("empty store version = %d, %v; want 0", v, err)
+	}
 }
 
 func testCommitLoad(t *testing.T, newStore Factory) {
@@ -128,6 +131,9 @@ func testCommitLoad(t *testing.T, newStore Factory) {
 	must(t, err)
 	if snap.Version != 1 || snap.LastWindow != 60 {
 		t.Fatalf("snapshot version/window = %d/%d, want 1/60", snap.Version, snap.LastWindow)
+	}
+	if v, err := s.Version(c); err != nil || v != 1 {
+		t.Fatalf("version = %d, %v; want 1", v, err)
 	}
 	for _, r := range recs {
 		got := snap.States[r.BuyerID]

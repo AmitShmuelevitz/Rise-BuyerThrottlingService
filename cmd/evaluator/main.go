@@ -40,7 +40,7 @@ func run() error {
 		redisAddr = env.String("REDIS_ADDR", "localhost:6379")
 		httpAddr  = env.String("HTTP_ADDR", ":8080")
 		owner     = env.String("EVALUATOR_ID", host)
-		grace     = env.Duration("EVALUATOR_GRACE", 5*time.Second)
+		grace     = env.Duration("THROTTLE_GRACE", 5*time.Second)
 		leaseTTL  = env.Duration("EVALUATOR_LEASE_TTL", 15*time.Second)
 		tick      = env.Duration("EVALUATOR_TICK", time.Second)
 	)

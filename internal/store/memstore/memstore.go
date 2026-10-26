@@ -76,6 +76,12 @@ func (s *Store) LoadState(_ context.Context) (store.Snapshot, error) {
 	}, nil
 }
 
+func (s *Store) Version(_ context.Context) (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.version, nil
+}
+
 func (s *Store) CommitState(_ context.Context, w window.ID, records []store.Record) (bool, uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

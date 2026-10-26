@@ -85,9 +85,12 @@ type Options struct {
 	// SyncInterval is how often throttle state is reloaded even without a
 	// pub/sub notification. Default 1s.
 	SyncInterval time.Duration
-	// MaxPendingAge bounds how long unflushed stats are retried after a store
-	// failure. Stats older than this are dropped because the evaluator has
-	// already processed their window. Default: Window.
+	// MaxPendingAge bounds how long after a window ends its unflushed stats
+	// are retried following a store failure. It should equal the evaluator's
+	// grace period: the evaluator reads a window once, at its end plus the
+	// grace, so stats written later would be stored but never counted.
+	// They are dropped and reported instead. Default 5s, the evaluator's
+	// default grace.
 	MaxPendingAge time.Duration
 	// InitialLoadTimeout bounds the first state load in Run. Default 2s.
 	InitialLoadTimeout time.Duration
@@ -113,7 +116,7 @@ func (o *Options) setDefaults() {
 		o.SyncInterval = time.Second
 	}
 	if o.MaxPendingAge <= 0 {
-		o.MaxPendingAge = o.Window
+		o.MaxPendingAge = 5 * time.Second
 	}
 	if o.InitialLoadTimeout <= 0 {
 		o.InitialLoadTimeout = 2 * time.Second
@@ -256,22 +259,33 @@ func (t *Throttler) Run(ctx context.Context) error {
 	return nil
 }
 
-// Sync loads the latest throttle state and swaps it in if the version changed.
+// Sync checks the state version and, only if it changed, loads the full state
+// and swaps it in. Polling therefore costs one small read per pod, however
+// many buyers there are.
 func (t *Throttler) Sync(ctx context.Context) error {
+	cur := t.snap.Load()
+	if !cur.loadedAt.IsZero() {
+		v, err := t.reader.Version(ctx)
+		if err != nil {
+			t.opts.Metrics.IncSyncErrors()
+			return err
+		}
+		if v == cur.version {
+			now := t.opts.Clock.Now()
+			next := *cur
+			next.loadedAt = now
+			t.snap.Store(&next)
+			t.checkStale(store.Snapshot{Version: cur.version, LastWindow: cur.lastWindow}, now)
+			return nil
+		}
+	}
+
 	snap, err := t.reader.LoadState(ctx)
 	if err != nil {
 		t.opts.Metrics.IncSyncErrors()
 		return err
 	}
-	cur := t.snap.Load()
 	now := t.opts.Clock.Now()
-	if snap.Version == cur.version && !cur.loadedAt.IsZero() {
-		next := *cur
-		next.loadedAt = now
-		t.snap.Store(&next)
-		t.checkStale(snap, now)
-		return nil
-	}
 
 	rates := make(map[string]float64, len(snap.States))
 	for id, r := range snap.States {

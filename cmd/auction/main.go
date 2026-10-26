@@ -44,6 +44,7 @@ func run() error {
 		auctionTO     = env.Duration("AUCTION_TIMEOUT", 150*time.Millisecond)
 		flushInterval = env.Duration("THROTTLE_FLUSH_INTERVAL", time.Second)
 		syncInterval  = env.Duration("THROTTLE_SYNC_INTERVAL", time.Second)
+		grace         = env.Duration("THROTTLE_GRACE", 5*time.Second) // must match the evaluator's
 	)
 	if err := env.Err(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -66,6 +67,7 @@ func run() error {
 		Window:        pol.Window,
 		FlushInterval: flushInterval,
 		SyncInterval:  syncInterval,
+		MaxPendingAge: grace,
 		Logger:        logger,
 		Metrics:       metrics.NewThrottler(reg, pol.Window),
 	})

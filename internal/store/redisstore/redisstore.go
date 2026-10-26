@@ -166,6 +166,19 @@ func (s *Store) LoadState(ctx context.Context) (store.Snapshot, error) {
 	return snap, nil
 }
 
+// Version reads only the version field: one small HGET, whatever the number
+// of buyers.
+func (s *Store) Version(ctx context.Context) (uint64, error) {
+	v, err := s.rdb.HGet(ctx, keyMeta, "version").Uint64()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read version: %w", err)
+	}
+	return v, nil
+}
+
 // commitScript writes all records, advances last_window and the version, and
 // publishes the new version, atomically. It refuses windows that are not newer
 // than the last committed one.

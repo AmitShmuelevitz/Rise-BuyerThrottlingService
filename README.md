@@ -2,7 +2,7 @@
 
 Monitors the health of external buyers in a real-time auction platform and controls how much traffic each one receives. A bad buyer is blocked down to 5% of its traffic, then recovers in 10% steps once it is healthy again.
 
-Written in Go. Redis is the only dependency. Design notes, diagrams and the decisions behind them are in [DESIGN.md](DESIGN.md).
+Written in Go. Redis is the only dependency. Design notes and the decisions behind them are in [DESIGN.md](DESIGN.md).
 
 ## Review in 5 minutes
 
@@ -17,7 +17,7 @@ flowchart LR
     pods["Auction pods<br/>ShouldCall / Record in memory"] -- "stats deltas every 1s" --> redis[("Redis")]
     redis -- "closed window" --> eval["Evaluator<br/>(leader of 2)"]
     eval -- "new throttle state + publish" --> redis
-    redis -- "state: pub/sub nudge + 1s poll" --> pods
+    redis -- "state: pub/sub nudge + 1s version check" --> pods
 ```
 
 ## Run the demo
@@ -32,7 +32,7 @@ This starts:
 
 | Service | What it is | Port |
 | --- | --- | --- |
-| `redis` | Shared store | 6379 |
+| `redis` | Shared store | internal only (`docker compose exec redis redis-cli`) |
 | `evaluator-1`, `evaluator-2` | Evaluator replicas; one holds the lease, the other is a hot standby | 8080, 8081 |
 | `auction-1..3` | Auction pods using the throttler | 8091-8093 |
 | `simulator` | Fake buyers plus a traffic generator (800 ad requests/s) | 9000 |
@@ -143,12 +143,12 @@ All services read environment variables. The policy variables must be identical 
 | `THROTTLE_RECOVERY_STEP` | `0.1` | Decrease per clean window |
 | `THROTTLE_WINDOW` | `1m` (demo: `10s`) | Evaluation window, whole seconds |
 | `THROTTLE_STALE_RECOVERY_WINDOWS` | `0` (off) | Optional: after N under-sample windows in a row, take one recovery step |
+| `THROTTLE_GRACE` | `5s` | How long after a window closes the evaluator reads it (> flush interval + clock skew); pods stop retrying that window's unsent stats at the same point |
 
 **Evaluator**
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EVALUATOR_GRACE` | `5s` | Wait after a window closes before reading it (> flush interval + clock skew) |
 | `EVALUATOR_LEASE_TTL` | `15s` | Leader lease; bounds failover time |
 | `EVALUATOR_TICK` | `1s` | How often to check for due windows and renew the lease |
 | `EVALUATOR_ID` | hostname | Replica identity in the lease |
@@ -229,12 +229,12 @@ deploy/                                         scenario, Prometheus, Grafana
 
 - **Evaluator high availability** with a lease and exactly-once commits: a single evaluator would be a single point of failure for recovery.
 - **Fail static and fail open**: an infrastructure fault never blocks traffic, and a Redis outage does not reset what pods know.
-- **Pub/sub plus polling**: state reaches pods in milliseconds normally, and within a second if a message is lost.
+- **Pub/sub plus polling**: state reaches pods in milliseconds normally, and within a second if a message is lost. Polling reads only the version, and the full state only when it changed, so it costs the same whatever the number of buyers.
 - **Graceful shutdown flush**: rolling deploys of auction pods lose no stats.
 - **Store conformance suite**: the in-memory store used in tests is proven to behave like Redis.
 - **Per-pod `/state`**: shows directly that pods converge.
 - **Executable demo**: the scenario carries its own expectations and CI checks them against the running system, so the demo cannot silently rot.
 - **Window size mismatch guard and state age metric**: the two misconfigurations that would silently corrupt throttling (pods and evaluator disagreeing on windows, or no evaluator running) are detected and exported.
 - **Tested alert rules**: metrics only help if someone is told. Five alerts cover the failures that stop throttling from working without any error reaching an auction, and promtool unit tests prove each fires when it should and stays quiet during a normal failover.
-- **Atomic stats flush**: MULTI/EXEC means a failed flush applies nothing, so its retry cannot double count.
+- **Atomic stats flush**: MULTI/EXEC means a failed flush applies nothing, so retrying it does not double count. (If Redis applies a flush but the reply is lost, the retry does count it twice: delivery is at least once, a negligible error over a window.)
 - **Opt-in stale-recovery probe**: addresses the one real weakness of the neutral under-sample rule (low-volume buyers can stay blocked) without changing the default behaviour.

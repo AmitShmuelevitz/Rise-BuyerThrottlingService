@@ -18,6 +18,9 @@ x-throttle-env: &throttle-env
   THROTTLE_BLOCK_LEVEL: ${THROTTLE_BLOCK_LEVEL:-0.95}
   THROTTLE_RECOVERY_STEP: ${THROTTLE_RECOVERY_STEP:-0.1}
   THROTTLE_STALE_RECOVERY_WINDOWS: ${THROTTLE_STALE_RECOVERY_WINDOWS:-0}
+  # How long after a window closes the evaluator reads it; pods stop retrying
+  # that window's stats at the same point.
+  THROTTLE_GRACE: ${THROTTLE_GRACE:-5s}
 
 x-evaluator: &evaluator
   build: .
@@ -43,7 +46,8 @@ services:
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports: ["6379:6379"]
+    # Not published on the host, so a local Redis on 6379 cannot clash with
+    # the demo. Inspect it with: docker compose exec redis redis-cli
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -55,7 +59,6 @@ services:
     environment:
       <<: *throttle-env
       EVALUATOR_ID: evaluator-1
-      EVALUATOR_GRACE: ${EVALUATOR_GRACE:-5s}
     ports: ["8080:8080"]
 
   evaluator-2:
@@ -63,7 +66,6 @@ services:
     environment:
       <<: *throttle-env
       EVALUATOR_ID: evaluator-2
-      EVALUATOR_GRACE: ${EVALUATOR_GRACE:-5s}
     ports: ["8081:8080"]
 
   auction-1:
